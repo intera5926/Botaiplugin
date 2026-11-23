@@ -4,6 +4,7 @@ import { storage } from "@vendetta/plugin";
 import { useProxy } from "@vendetta/storage";
 import { Forms } from "@vendetta/ui/components";
 import { showToast } from "@vendetta/ui/toasts";
+import { safeFetch } from "@vendetta/utils";
 
 const { ScrollView } = ReactNative;
 const { FormSection, FormInput, FormSwitchRow, FormDivider } = Forms;
@@ -86,34 +87,32 @@ async function generateBotReply(channelId: string) {
     }
 
     const modelName = (storage.model || "gemini-3.5-flash-lite").trim();
+    const url = `https://googleapis.com{modelName}:generateContent?key=${encodeURIComponent(key)}`;
 
     try {
-        const response = await fetch(
-            `https://googleapis.com{modelName}:generateContent`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": key,
+        const fetcher = typeof safeFetch === "function" ? safeFetch : fetch;
+        const response = await fetcher(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                systemInstruction: {
+                    parts: [{ text: storage.systemPrompt }],
                 },
-                body: JSON.stringify({
-                    systemInstruction: {
-                        parts: [{ text: storage.systemPrompt }],
-                    },
-                    contents: chatHistory,
-                    generationConfig: {
-                        maxOutputTokens: 150,
-                        temperature: 0.85,
-                    },
-                }),
-            }
-        );
+                contents: chatHistory,
+                generationConfig: {
+                    maxOutputTokens: 150,
+                    temperature: 0.85,
+                },
+            }),
+        });
 
         const data = await response.json();
 
         if (!response.ok || data?.error) {
             const errMsg = data?.error?.message || `HTTP ${response.status}`;
-            showToast(`Gemini Error: ${errMsg}`);
+            showToast(`API Error: ${errMsg}`);
             injectLocalBotMessage(channelId, `⚠️ [API Error]: ${errMsg}`);
             return;
         }
@@ -131,7 +130,7 @@ async function generateBotReply(channelId: string) {
             showToast("Gemini returned empty reply");
         }
     } catch (err: any) {
-        showToast(`Network Error: ${err?.message || err}`);
+        showToast(`Net Error: ${err?.message || err}`);
     }
 }
 
