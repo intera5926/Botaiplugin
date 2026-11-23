@@ -78,14 +78,19 @@ function injectLocalBotMessage(channelId: string, text: string) {
     }
 }
 
-function sendXHR(method: string, url: string, bodyStr?: string): Promise<{ status: number; text: string }> {
+function sendXHR(
+    method: string,
+    url: string,
+    headers: Record<string, string>,
+    bodyStr?: string
+): Promise<{ status: number; text: string }> {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open(method, url, true);
-        if (bodyStr) {
-            xhr.setRequestHeader("Content-Type", "application/json");
+        for (const [k, v] of Object.entries(headers)) {
+            xhr.setRequestHeader(k, v);
         }
-        xhr.timeout = 12000;
+        xhr.timeout = 15000;
 
         xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
         xhr.onerror = () => reject(new Error(`XHR failed (status=${xhr.status})`));
@@ -102,12 +107,16 @@ async function generateBotReply(channelId: string) {
     }
 
     const modelName = (storage.model || "gemini-3.5-flash-lite").trim();
-    const url = `https://googleapis.com{modelName}:generateContent?key=${encodeURIComponent(key)}`;
+    const url = `https://googleapis.com{modelName}:generateContent`;
 
     try {
         const res = await sendXHR(
             "POST",
             url,
+            {
+                "Content-Type": "application/json",
+                "x-goog-api-key": key,
+            },
             JSON.stringify({
                 systemInstruction: {
                     parts: [{ text: storage.systemPrompt }],
@@ -126,7 +135,7 @@ async function generateBotReply(channelId: string) {
         } catch {}
 
         if (res.status < 200 || res.status >= 300 || data?.error) {
-            const errMsg = data?.error?.message || `HTTP ${res.status}: ${res.text.slice(0, 100)}`;
+            const errMsg = data?.error?.message || `HTTP ${res.status}: ${res.text.slice(0, 120)}`;
             showToast(`API Error: ${errMsg}`);
             injectLocalBotMessage(channelId, `⚠️ [API Error]: ${errMsg}`);
             return;
@@ -144,13 +153,7 @@ async function generateBotReply(channelId: string) {
             showToast("Gemini returned empty reply");
         }
     } catch (err: any) {
-        // Run instant 1-second check to see if Discord blocks ALL external HTTPS or just Google
-        try {
-            const ping = await sendXHR("GET", "https://github.io");
-            showToast(`GitHub OK (${ping.status}), Google blocked: ${err?.message}`);
-        } catch {
-            showToast(`Discord SSL Pinning blocks external HTTPS (${err?.message})`);
-        }
+        showToast(`Gemini Net Error: ${err?.message || err}`);
     }
 }
 
