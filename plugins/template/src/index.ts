@@ -96,18 +96,14 @@ function onMessageCreate(event: any) {
     const msg = event.message;
     if (!msg || !msg.content) return;
 
-    // Only work in the target Group DM / Channel
     if (storage.channelId && msg.channel_id !== storage.channelId.trim()) return;
 
-    // Completely ignore everyone else (including our own fake bot messages)
     const currentUser = UserStore.getCurrentUser();
     if (msg.author?.id !== currentUser?.id) return;
 
-    // Only trigger if message starts with the prefix (default: ?F)
     const prefix = (storage.triggerPrefix ?? "?F").trim();
     if (prefix && !msg.content.startsWith(prefix)) return;
 
-    // Strip the "?F" prefix so the bot just sees normal conversation
     const cleanText = prefix ? msg.content.slice(prefix.length).trim() : msg.content.trim();
     if (!cleanText) return;
 
@@ -141,54 +137,57 @@ export default {
     settings() {
         useProxy(storage);
 
-        return (
-            <ScrollView style={{ flex: 1 }}>
-                <FormSection title="General">
-                    <FormSwitchRow
-                        label="Enable aibotschizo"
-                        subLabel="Replies locally when you start a message with the prefix"
-                        value={storage.enabled}
-                        onValueChange={(v: boolean) => (storage.enabled = v)}
-                    />
-                    <FormDivider />
-                    <FormInput
-                        title="Target Group DM / Channel ID"
-                        placeholder="Paste Channel ID here"
-                        value={storage.channelId}
-                        onChange={(v: string) => (storage.channelId = v)}
-                    />
-                    <FormDivider />
-                    <FormInput
-                        title="Trigger Prefix"
-                        placeholder="?F"
-                        value={storage.triggerPrefix}
-                        onChange={(v: string) => (storage.triggerPrefix = v)}
-                    />
-                    <FormDivider />
-                    <FormInput
-                        title="Bot Display Name"
-                        placeholder="ChatterBot"
-                        value={storage.botName}
-                        onChange={(v: string) => (storage.botName = v)}
-                    />
-                </FormSection>
-
-                <FormSection title="AI Brain (Google AI Studio)">
-                    <FormInput
-                        title="Gemini API Key"
-                        placeholder="AIza..."
-                        value={storage.apiKey}
-                        onChange={(v: string) => (storage.apiKey = v)}
-                    />
-                    <FormDivider />
-                    <FormInput
-                        title="System Prompt (Personality)"
-                        placeholder="Define how the bot talks..."
-                        value={storage.systemPrompt}
-                        onChange={(v: string) => (storage.systemPrompt = v)}
-                    />
-                </FormSection>
-            </ScrollView>
+        return React.createElement(
+            ScrollView,
+            { style: { flex: 1 } },
+            React.createElement(
+                FormSection,
+                { title: "General" },
+                React.createElement(FormSwitchRow, {
+                    label: "Enable aibotschizo",
+                    subLabel: "Replies locally when you start a message with the prefix",
+                    value: storage.enabled,
+                    onValueChange: (v: boolean) => (storage.enabled = v),
+                }),
+                React.createElement(FormDivider, null),
+                React.createElement(FormInput, {
+                    title: "Target Group DM / Channel ID",
+                    placeholder: "Paste Channel ID here",
+                    value: storage.channelId,
+                    onChange: (v: string) => (storage.channelId = v),
+                }),
+                React.createElement(FormDivider, null),
+                React.createElement(FormInput, {
+                    title: "Trigger Prefix",
+                    placeholder: "?F",
+                    value: storage.triggerPrefix,
+                    onChange: (v: string) => (storage.triggerPrefix = v),
+                }),
+                React.createElement(FormDivider, null),
+                React.createElement(FormInput, {
+                    title: "Bot Display Name",
+                    placeholder: "ChatterBot",
+                    value: storage.botName,
+                    onChange: (v: string) => (storage.botName = v),
+                })
+            ),
+            React.createElement(
+                FormSection,
+                { title: "AI Brain (Google AI Studio)" },
+                React.createElement(FormInput, {
+                    title: "Gemini API Key",
+                    placeholder: "AIza...",
+                    value: storage.apiKey,
+                    onChange: (v: string) => (storage.apiKey = v),
+                }),
+                React.createElement(FormDivider, null),
+                React.createElement(FormInput, {
+                    title: "System Prompt (Personality)",
+                    placeholder: "Define how the bot talks...",
+                    value: storage.systemPrompt,
+                    onChange: (v: string) => (storage.systemPrompt = v),
+                })
+            )
         );
     },
 };
