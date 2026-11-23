@@ -4,7 +4,6 @@ import { storage } from "@vendetta/plugin";
 import { useProxy } from "@vendetta/storage";
 import { Forms } from "@vendetta/ui/components";
 import { showToast } from "@vendetta/ui/toasts";
-import { safeFetch } from "@vendetta/utils";
 
 const { ScrollView } = ReactNative;
 const { FormSection, FormInput, FormSwitchRow, FormDivider } = Forms;
@@ -79,6 +78,22 @@ function injectLocalBotMessage(channelId: string, text: string) {
     }
 }
 
+function sendXHR(method: string, url: string, bodyStr?: string): Promise<{ status: number; text: string }> {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(method, url, true);
+        if (bodyStr) {
+            xhr.setRequestHeader("Content-Type", "application/json");
+        }
+        xhr.timeout = 12000;
+
+        xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+        xhr.onerror = () => reject(new Error(`XHR failed (status=${xhr.status})`));
+        xhr.ontimeout = () => reject(new Error("XHR timeout"));
+        xhr.send(bodyStr ?? null);
+    });
+}
+
 async function generateBotReply(channelId: string) {
     const key = (storage.apiKey || "").trim();
     if (!key) {
@@ -90,13 +105,10 @@ async function generateBotReply(channelId: string) {
     const url = `https://googleapis.com{modelName}:generateContent?key=${encodeURIComponent(key)}`;
 
     try {
-        const fetcher = typeof safeFetch === "function" ? safeFetch : fetch;
-        const response = await fetcher(url, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
+        const res = await sendXHR(
+            "POST",
+            url,
+            JSON.stringify({
                 systemInstruction: {
                     parts: [{ text: storage.systemPrompt }],
                 },
@@ -105,13 +117,16 @@ async function generateBotReply(channelId: string) {
                     maxOutputTokens: 150,
                     temperature: 0.85,
                 },
-            }),
-        });
+            })
+        );
 
-        const data = await response.json();
+        let data: any = null;
+        try {
+            data = JSON.parse(res.text);
+        } catch {}
 
-        if (!response.ok || data?.error) {
-            const errMsg = data?.error?.message || `HTTP ${response.status}`;
+        if (res.status < 200 || res.status >= 300 || data?.error) {
+            const errMsg = data?.error?.message || `HTTP ${res.status}: ${res.text.slice(0, 100)}`;
             showToast(`API Error: ${errMsg}`);
             injectLocalBotMessage(channelId, `⚠️ [API Error]: ${errMsg}`);
             return;
@@ -124,13 +139,18 @@ async function generateBotReply(channelId: string) {
         if (reply) {
             chatHistory.push({ role: "model", parts: [{ text: reply }] });
             if (chatHistory.length > 16) chatHistory.shift();
-
             injectLocalBotMessage(channelId, reply);
         } else {
             showToast("Gemini returned empty reply");
         }
     } catch (err: any) {
-        showToast(`Net Error: ${err?.message || err}`);
+        // Run instant 1-second check to see if Discord blocks ALL external HTTPS or just Google
+        try {
+            const ping = await sendXHR("GET", "https://github.io");
+            showToast(`GitHub OK (${ping.status}), Google blocked: ${err?.message}`);
+        } catch {
+            showToast(`Discord SSL Pinning blocks external HTTPS (${err?.message})`);
+        }
     }
 }
 
