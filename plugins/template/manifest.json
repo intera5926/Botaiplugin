@@ -1,14 +1,14 @@
 {
-    "name": "Template Plugin",
-    "description": "A plugin for use as a template.",
+    "name": "aibotschizo",
+    "description": "Spawns a local-only AI hallucination in your group chat that only you can see.",
     "authors": [
         {
-            "name": "You!",
-            "id": "YOUR_ID_HERE"
+            "name": "intera5926",
+            "id": "0"
         }
     ],
     "main": "src/index.ts",
     "vendetta": {
-        "icon": "ic_badge_staff"
+        "icon": "ic_robot_24px"
     }
 }
