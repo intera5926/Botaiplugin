@@ -3,6 +3,7 @@ import { FluxDispatcher, React, ReactNative } from "@vendetta/metro/common";
 import { storage } from "@vendetta/plugin";
 import { useProxy } from "@vendetta/storage";
 import { Forms } from "@vendetta/ui/components";
+import { showToast } from "@vendetta/ui/toasts";
 
 const { ScrollView } = ReactNative;
 const { FormSection, FormInput, FormSwitchRow, FormDivider } = Forms;
@@ -15,15 +16,14 @@ storage.apiKey ??= "";
 storage.channelId ??= "";
 storage.triggerPrefix ??= "?F";
 storage.botName ??= "ChatterBot";
+storage.model ??= "gemini-3.5-flash-lite";
 storage.systemPrompt ??=
     "You are a friendly, casual Discord chatter bot talking 1-on-1 with a user. Keep replies short (1-3 sentences), natural, and conversational, like a normal Discord user or chatbot. You have no idea anyone else exists—just reply directly to what the user says.";
 
 let chatHistory: { role: "user" | "model"; parts: { text: string }[] }[] = [];
 
 function injectLocalBotMessage(channelId: string, text: string) {
-    if (!MessageActions?.receiveMessage) return;
-
-    MessageActions.receiveMessage(channelId, {
+    const fakeMsg = {
         id: String(Date.now() * 100000 + Math.floor(Math.random() * 9999)),
         type: 0,
         channel_id: channelId,
@@ -45,20 +45,56 @@ function injectLocalBotMessage(channelId: string, text: string) {
         embeds: [],
         pinned: false,
         flags: 0,
-    });
+    };
+
+    if (MessageActions?.receiveMessage) {
+        try {
+            MessageActions.receiveMessage(channelId, fakeMsg);
+            return;
+        } catch (e) {
+            console.error("[aibotschizo] receiveMessage failed:", e);
+        }
+    }
+
+    if (MessageActions?.sendBotMessage) {
+        try {
+            MessageActions.sendBotMessage(channelId, text, storage.botName || "ChatterBot");
+            return;
+        } catch (e) {
+            console.error("[aibotschizo] sendBotMessage failed:", e);
+        }
+    }
+
+    try {
+        FluxDispatcher.dispatch({
+            type: "MESSAGE_CREATE",
+            channelId,
+            message: fakeMsg,
+            optimistic: false,
+            isPushNotification: false,
+        });
+    } catch (e: any) {
+        showToast(`Inject error: ${e?.message || e}`);
+    }
 }
 
 async function generateBotReply(channelId: string) {
-    if (!storage.apiKey) return;
+    const key = (storage.apiKey || "").trim();
+    if (!key) {
+        showToast("aibotschizo: No API key set!");
+        return;
+    }
+
+    const modelName = (storage.model || "gemini-3.5-flash-lite").trim();
 
     try {
-        const key = storage.apiKey.trim();
         const response = await fetch(
-            `https://googleapis.com{key}`,
+            `https://googleapis.com{modelName}:generateContent`,
             {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
+                    "x-goog-api-key": key,
                 },
                 body: JSON.stringify({
                     systemInstruction: {
@@ -74,6 +110,14 @@ async function generateBotReply(channelId: string) {
         );
 
         const data = await response.json();
+
+        if (!response.ok || data?.error) {
+            const errMsg = data?.error?.message || `HTTP ${response.status}`;
+            showToast(`Gemini Error: ${errMsg}`);
+            injectLocalBotMessage(channelId, `⚠️ [API Error]: ${errMsg}`);
+            return;
+        }
+
         const firstCandidate = data?.candidates?.at(0);
         const firstPart = firstCandidate?.content?.parts?.at(0);
         const reply = firstPart?.text?.trim();
@@ -83,9 +127,11 @@ async function generateBotReply(channelId: string) {
             if (chatHistory.length > 16) chatHistory.shift();
 
             injectLocalBotMessage(channelId, reply);
+        } else {
+            showToast("Gemini returned empty reply");
         }
-    } catch (err) {
-        console.error("[aibotschizo] Failed to fetch AI reply:", err);
+    } catch (err: any) {
+        showToast(`Network Error: ${err?.message || err}`);
     }
 }
 
@@ -176,9 +222,16 @@ export default {
                 { title: "AI Brain (Google AI Studio)" },
                 React.createElement(FormInput, {
                     title: "Gemini API Key",
-                    placeholder: "AIza...",
+                    placeholder: "AQ...",
                     value: storage.apiKey,
                     onChange: (v: string) => (storage.apiKey = v),
+                }),
+                React.createElement(FormDivider, null),
+                React.createElement(FormInput, {
+                    title: "Model Name",
+                    placeholder: "gemini-3.5-flash-lite",
+                    value: storage.model,
+                    onChange: (v: string) => (storage.model = v),
                 }),
                 React.createElement(FormDivider, null),
                 React.createElement(FormInput, {
