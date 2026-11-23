@@ -12,15 +12,13 @@ const MessageActions = findByProps("sendBotMessage", "receiveMessage");
 const UserStore = findByStoreName("UserStore");
 
 storage.enabled ??= true;
-storage.apiKey ??= "";
 storage.channelId ??= "";
 storage.triggerPrefix ??= "?F";
 storage.botName ??= "ChatterBot";
-storage.model ??= "gemini-3.5-flash-lite";
 storage.systemPrompt ??=
     "You are a friendly, casual Discord chatter bot talking 1-on-1 with a user. Keep replies short (1-3 sentences), natural, and conversational, like a normal Discord user or chatbot. You have no idea anyone else exists—just reply directly to what the user says.";
 
-let chatHistory: { role: "user" | "model"; parts: { text: string }[] }[] = [];
+let chatHistory: { role: "User" | "Bot"; text: string }[] = [];
 
 function injectLocalBotMessage(channelId: string, text: string) {
     const fakeMsg = {
@@ -78,82 +76,42 @@ function injectLocalBotMessage(channelId: string, text: string) {
     }
 }
 
-function sendXHR(
-    method: string,
-    url: string,
-    headers: Record<string, string>,
-    bodyStr?: string
-): Promise<{ status: number; text: string }> {
+function getTextXHR(url: string): Promise<{ status: number; text: string }> {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open(method, url, true);
-        for (const [k, v] of Object.entries(headers)) {
-            xhr.setRequestHeader(k, v);
-        }
+        xhr.open("GET", url, true);
         xhr.timeout = 15000;
 
         xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
-        xhr.onerror = () => reject(new Error(`XHR failed (status=${xhr.status})`));
-        xhr.ontimeout = () => reject(new Error("XHR timeout"));
-        xhr.send(bodyStr ?? null);
+        xhr.onerror = () => reject(new Error(`GET failed (status=${xhr.status})`));
+        xhr.ontimeout = () => reject(new Error("GET timeout"));
+        xhr.send(null);
     });
 }
 
 async function generateBotReply(channelId: string) {
-    const key = (storage.apiKey || "").trim();
-    if (!key) {
-        showToast("aibotschizo: No API key set!");
-        return;
-    }
-
-    const modelName = (storage.model || "gemini-3.5-flash-lite").trim();
-    const url = `https://googleapis.com{modelName}:generateContent`;
+    const convo = chatHistory.map((m) => `${m.role}: ${m.text}`).join("\n");
+    const fullPrompt = `${storage.systemPrompt}\n\nConversation:\n${convo}\nBot:`;
+    const url = `https://pollinations.ai{encodeURIComponent(fullPrompt)}?model=openai`;
 
     try {
-        const res = await sendXHR(
-            "POST",
-            url,
-            {
-                "Content-Type": "application/json",
-                "x-goog-api-key": key,
-            },
-            JSON.stringify({
-                systemInstruction: {
-                    parts: [{ text: storage.systemPrompt }],
-                },
-                contents: chatHistory,
-                generationConfig: {
-                    maxOutputTokens: 150,
-                    temperature: 0.85,
-                },
-            })
-        );
+        const res = await getTextXHR(url);
 
-        let data: any = null;
-        try {
-            data = JSON.parse(res.text);
-        } catch {}
-
-        if (res.status < 200 || res.status >= 300 || data?.error) {
-            const errMsg = data?.error?.message || `HTTP ${res.status}: ${res.text.slice(0, 120)}`;
-            showToast(`API Error: ${errMsg}`);
-            injectLocalBotMessage(channelId, `⚠️ [API Error]: ${errMsg}`);
+        if (res.status < 200 || res.status >= 300) {
+            showToast(`AI Error: HTTP ${res.status}`);
             return;
         }
 
-        const firstCandidate = data?.candidates?.at(0);
-        const firstPart = firstCandidate?.content?.parts?.at(0);
-        const reply = firstPart?.text?.trim();
-
+        const reply = res.text?.trim();
         if (reply) {
-            chatHistory.push({ role: "model", parts: [{ text: reply }] });
-            if (chatHistory.length > 16) chatHistory.shift();
+            chatHistory.push({ role: "Bot", text: reply });
+            if (chatHistory.length > 12) chatHistory.shift();
             injectLocalBotMessage(channelId, reply);
         } else {
-            showToast("Gemini returned empty reply");
+            showToast("AI returned empty reply");
         }
     } catch (err: any) {
-        showToast(`Gemini Net Error: ${err?.message || err}`);
+        showToast(`Net Error: ${err?.message || err}`);
     }
 }
 
@@ -175,18 +133,8 @@ function onMessageCreate(event: any) {
     const cleanText = prefix ? msg.content.slice(prefix.length).trim() : msg.content.trim();
     if (!cleanText) return;
 
-    const lastEntry = chatHistory.at(-1);
-    if (lastEntry && lastEntry.role === "user") {
-        const firstUserPart = lastEntry.parts.at(0);
-        if (firstUserPart) firstUserPart.text += `\n${cleanText}`;
-    } else {
-        chatHistory.push({
-            role: "user",
-            parts: [{ text: cleanText }],
-        });
-    }
-
-    if (chatHistory.length > 16) chatHistory.shift();
+    chatHistory.push({ role: "User", text: cleanText });
+    if (chatHistory.length > 12) chatHistory.shift();
 
     generateBotReply(msg.channel_id);
 }
@@ -241,23 +189,9 @@ export default {
             ),
             React.createElement(
                 FormSection,
-                { title: "AI Brain (Google AI Studio)" },
+                { title: "AI Personality" },
                 React.createElement(FormInput, {
-                    title: "Gemini API Key",
-                    placeholder: "AQ...",
-                    value: storage.apiKey,
-                    onChange: (v: string) => (storage.apiKey = v),
-                }),
-                React.createElement(FormDivider, null),
-                React.createElement(FormInput, {
-                    title: "Model Name",
-                    placeholder: "gemini-3.5-flash-lite",
-                    value: storage.model,
-                    onChange: (v: string) => (storage.model = v),
-                }),
-                React.createElement(FormDivider, null),
-                React.createElement(FormInput, {
-                    title: "System Prompt (Personality)",
+                    title: "System Prompt",
                     placeholder: "Define how the bot talks...",
                     value: storage.systemPrompt,
                     onChange: (v: string) => (storage.systemPrompt = v),
