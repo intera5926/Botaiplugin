@@ -16,16 +16,31 @@ storage.channelId ??= "";
 storage.triggerPrefix ??= "?F";
 storage.botName ??= "ChatterBot";
 storage.endpointUrl ??= "http://127.0.0";
-storage.modelName ??= "llama3.2";
+storage.modelName ??= "qwen2.5:7b";
 storage.apiKey ??= "";
 storage.systemPrompt ??=
     "You are a friendly, casual Discord chatter bot talking 1-on-1 with a user. Keep replies short (1-3 sentences), natural, and conversational, like a normal Discord user or chatbot. You have no idea anyone else exists—just reply directly to what the user says.";
 
 let chatHistory: { role: "user" | "assistant"; content: string }[] = [];
 
+function trimHistoryChunked() {
+    // Let history grow to 16 messages, then drop the oldest 6 in one batch.
+    // This keeps the prompt prefix identical across 6 turns so llama.cpp reuses its KV cache.
+    if (chatHistory.length > 16) {
+        chatHistory.splice(0, 6);
+    }
+}
+
+function generateSnowflake(): string {
+    const discordEpoch = 1420070400000n;
+    const timestamp = BigInt(Date.now()) - discordEpoch;
+    const randomBits = BigInt(Math.floor(Math.random() * 4194303));
+    return ((timestamp << 22n) | randomBits).toString();
+}
+
 function injectLocalBotMessage(channelId: string, text: string) {
     const fakeMsg = {
-        id: String(Date.now() * 100000 + Math.floor(Math.random() * 9999)),
+        id: generateSnowflake(),
         type: 0,
         channel_id: channelId,
         content: text,
@@ -101,7 +116,7 @@ function postXHR(
 
 async function generateBotReply(channelId: string) {
     const url = (storage.endpointUrl || "http://127.0.0").trim();
-    const model = (storage.modelName || "llama3.2").trim();
+    const model = (storage.modelName || "qwen2.5:7b").trim();
     const key = (storage.apiKey || "").trim();
 
     const headers: Record<string, string> = {
@@ -143,7 +158,7 @@ async function generateBotReply(channelId: string) {
 
         if (reply) {
             chatHistory.push({ role: "assistant", content: reply });
-            if (chatHistory.length > 12) chatHistory.shift();
+            trimHistoryChunked();
             injectLocalBotMessage(channelId, reply);
         } else {
             showToast("AI returned empty reply");
@@ -172,7 +187,7 @@ function onMessageCreate(event: any) {
     if (!cleanText) return;
 
     chatHistory.push({ role: "user", content: cleanText });
-    if (chatHistory.length > 12) chatHistory.shift();
+    trimHistoryChunked();
 
     generateBotReply(msg.channel_id);
 }
@@ -237,7 +252,7 @@ export default {
                 React.createElement(FormDivider, null),
                 React.createElement(FormInput, {
                     title: "Model Name",
-                    placeholder: "llama3.2",
+                    placeholder: "qwen2.5:7b",
                     value: storage.modelName,
                     onChange: (v: string) => (storage.modelName = v),
                 }),
